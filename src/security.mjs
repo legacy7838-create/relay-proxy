@@ -136,7 +136,7 @@ export function validateTarget(
   }
 
   const path = normalizeRelayPath(relayPath === undefined ? "/" : relayPath, target, maxPathLength);
-  return { url: target, origin: target.origin, path };
+  return { url: new URL(path, target.origin), origin: target.origin, path };
 }
 
 export function validateRelayUrl(rawUrl, { allowLocalTestTargets = false } = {}) {
