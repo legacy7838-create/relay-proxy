@@ -8,7 +8,7 @@
     "node": ">=20"
   },
   "scripts": {
-    "test": "node --test tests/",
+    "test": "node --test",
     "relay": "node scripts/run-relay.mjs",
     "gateway": "node scripts/run-gateway.mjs",
     "prepare-registry": "node scripts/prepare-registry.mjs"
