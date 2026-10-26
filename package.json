@@ -1,0 +1,16 @@
+{
+  "name": "relay-proxy",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Temporary relay pool on GitHub Actions with Cloudflare Quick Tunnels",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "test": "node --test tests/",
+    "relay": "node scripts/run-relay.mjs",
+    "gateway": "node scripts/run-gateway.mjs",
+    "prepare-registry": "node scripts/prepare-registry.mjs"
+  }
+}

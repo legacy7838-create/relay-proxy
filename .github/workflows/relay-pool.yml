@@ -1,0 +1,118 @@
+name: Temporary Relay Pool
+
+on:
+  workflow_dispatch:
+    inputs:
+      lifetime_minutes:
+        description: "Pool lifetime in minutes (1-340; the job timeout is 350)"
+        required: false
+        default: "330"
+        type: string
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: temporary-relay-pool
+  cancel-in-progress: true
+
+jobs:
+  prepare:
+    name: Prepare shared registry
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      issue_number: ${{ steps.registry.outputs.issue_number }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "22"
+      - name: Prepare registry issue and clear stale registrations
+        id: registry
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: node scripts/prepare-registry.mjs
+
+  relay:
+    name: Relay ${{ matrix.relay_id }}
+    needs: prepare
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    strategy:
+      fail-fast: false
+      matrix:
+        relay_id: [relay-1, relay-2, relay-3, relay-4]
+    env:
+      RELAY_ID: ${{ matrix.relay_id }}
+      PORT: "3000"
+      LIFETIME_MINUTES: ${{ inputs.lifetime_minutes }}
+      RELAY_SHARED_TOKEN: ${{ secrets.RELAY_SHARED_TOKEN }}
+      ALLOWED_HOSTS: ${{ vars.ALLOWED_HOSTS }}
+      REGISTRY_ISSUE_NUMBER: ${{ needs.prepare.outputs.issue_number }}
+      GITHUB_TOKEN: ${{ github.token }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "22"
+      - name: Install cloudflared (official Cloudflare apt repository)
+        run: |
+          sudo mkdir -p --mode=0755 /usr/share/keyrings
+          curl -fsSL https://pkg.cloudflare.com/cloudflare-main.gpg | sudo tee /usr/share/keyrings/cloudflare-main.gpg >/dev/null
+          echo 'deb [signed-by=/usr/share/keyrings/cloudflare-main.gpg] https://pkg.cloudflare.com/cloudflared any main' | sudo tee /etc/apt/sources.list.d/cloudflared.list >/dev/null
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends cloudflared
+          cloudflared --version
+      - name: Validate required configuration
+        env:
+          RELAY_SHARED_TOKEN: ${{ secrets.RELAY_SHARED_TOKEN }}
+        run: |
+          test -n "$RELAY_SHARED_TOKEN" || { echo "::error::Set the RELAY_SHARED_TOKEN Actions secret."; exit 1; }
+          test -n "$ALLOWED_HOSTS" || { echo "::error::Set the ALLOWED_HOSTS repository variable."; exit 1; }
+      - name: Start relay, register Quick Tunnel, and supervise
+        run: node scripts/run-relay.mjs
+
+  gateway:
+    name: Round-robin gateway
+    needs: prepare
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    env:
+      PORT: "3000"
+      LIFETIME_MINUTES: ${{ inputs.lifetime_minutes }}
+      CLIENT_SHARED_TOKEN: ${{ secrets.CLIENT_SHARED_TOKEN }}
+      RELAY_SHARED_TOKEN: ${{ secrets.RELAY_SHARED_TOKEN }}
+      ALLOWED_HOSTS: ${{ vars.ALLOWED_HOSTS }}
+      REGISTRY_ISSUE_NUMBER: ${{ needs.prepare.outputs.issue_number }}
+      GITHUB_TOKEN: ${{ github.token }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "22"
+      - name: Install cloudflared (official Cloudflare apt repository)
+        run: |
+          sudo mkdir -p --mode=0755 /usr/share/keyrings
+          curl -fsSL https://pkg.cloudflare.com/cloudflare-main.gpg | sudo tee /usr/share/keyrings/cloudflare-main.gpg >/dev/null
+          echo 'deb [signed-by=/usr/share/keyrings/cloudflare-main.gpg] https://pkg.cloudflare.com/cloudflared any main' | sudo tee /etc/apt/sources.list.d/cloudflared.list >/dev/null
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends cloudflared
+          cloudflared --version
+      - name: Validate required configuration
+        env:
+          RELAY_SHARED_TOKEN: ${{ secrets.RELAY_SHARED_TOKEN }}
+          CLIENT_SHARED_TOKEN: ${{ secrets.CLIENT_SHARED_TOKEN }}
+        run: |
+          test -n "$RELAY_SHARED_TOKEN" || { echo "::error::Set the RELAY_SHARED_TOKEN Actions secret."; exit 1; }
+          test -n "$CLIENT_SHARED_TOKEN" || { echo "::error::Set the CLIENT_SHARED_TOKEN Actions secret."; exit 1; }
+          test -n "$ALLOWED_HOSTS" || { echo "::error::Set the ALLOWED_HOSTS repository variable."; exit 1; }
+      - name: Start gateway, publish Quick Tunnel, and supervise
+        run: node scripts/run-gateway.mjs
